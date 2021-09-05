@@ -7,6 +7,7 @@ using Dynamo.Graph.Connectors;
 using Dynamo.Graph.Nodes;
 using Dynamo.Utilities;
 using Dynamo.UI.Commands;
+using DynCmd = Dynamo.Models.DynamoModel;
 
 using Point = System.Windows.Point;
 using Dynamo.Selection;
@@ -618,7 +619,7 @@ namespace Dynamo.ViewModels
         /// </summary>
         internal void FlipOnConnectorAnchor()
         {
-            ConnectorAnchorViewModel = new ConnectorAnchorViewModel(this, workspaceViewModel.DynamoViewModel.Model, ConnectorDataTooltip)
+            ConnectorAnchorViewModel = new ConnectorAnchorViewModel(this, workspaceViewModel.DynamoViewModel, ConnectorDataTooltip)
             {
                 CanShowTooltip = CanShowConnectorTooltip,
                 CurrentPosition = MousePosition,
@@ -695,9 +696,15 @@ namespace Dynamo.ViewModels
         /// <param name="parameter"></param>
         private void HideConnectorCommandExecute(object parameter)
         {
-            IsVisible = !IsVisible;
+            bool inverse = !ConnectorModel.IsVisible;
+            workspaceViewModel.DynamoViewModel.ExecuteCommand(
+                   new DynCmd.UpdateModelValueCommand(System.Guid.Empty, ConnectorModel.GUID,
+                   "IsVisible", inverse.ToString()));
+
+            workspaceViewModel.DynamoViewModel.RaiseCanExecuteUndoRedo();
+
             bool adjacentNodeSelected = model.Start.Owner.IsSelected || model.End.Owner.IsSelected;
-            if (adjacentNodeSelected && isVisible == false)
+            if (adjacentNodeSelected && ConnectorModel.IsVisible == false)
             {
                 IsPartlyVisible = true;
             }
@@ -706,6 +713,7 @@ namespace Dynamo.ViewModels
                 IsPartlyVisible = false;
             }
         }
+
         /// <summary>
         /// Selects nodes connected to this wire.
         /// </summary>
@@ -781,7 +789,6 @@ namespace Dynamo.ViewModels
             ConnectorPinViewCollection = new ObservableCollection<ConnectorPinViewModel>();
             ConnectorPinViewCollection.CollectionChanged += HandleCollectionChanged;
 
-            IsVisible = workspaceViewModel.DynamoViewModel.IsShowingConnectors;
             IsConnecting = true;
             MouseHoverOn = false;
             activeStartPort = port;
@@ -812,12 +819,13 @@ namespace Dynamo.ViewModels
         {
             this.workspaceViewModel = workspace;
             model = connectorModel;
-            connectorModel.ConnectorPinModels.CollectionChanged += ConnectorPinModelCollectionChanged;
+            IsVisible = model.IsVisible;
+            model.PropertyChanged += HandleConnectorPropertyChanged;
+            model.ConnectorPinModels.CollectionChanged += ConnectorPinModelCollectionChanged;
 
             ConnectorPinViewCollection = new ObservableCollection<ConnectorPinViewModel>();
             ConnectorPinViewCollection.CollectionChanged += HandleCollectionChanged;
-
-            IsVisible = workspaceViewModel.DynamoViewModel.IsShowingConnectors;
+            IsVisible = ConnectorModel.IsVisible;
             MouseHoverOn = false;
 
             if (connectorModel.ConnectorPinModels != null)
@@ -838,6 +846,19 @@ namespace Dynamo.ViewModels
 
             UpdateConnectorDataToolTip();
             this.PropertyChanged += connectorViewModelPropertyChanged;
+        }
+
+        private void HandleConnectorPropertyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            switch (e.PropertyName)
+            {
+                case nameof(ConnectorModel.IsVisible):
+                    ConnectorModel connector = sender as ConnectorModel;
+                    IsVisible = connector.IsVisible;
+                    break;
+                default:
+                    break;
+            }
         }
 
         private void ConnectorPinModelCollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
@@ -957,6 +978,7 @@ namespace Dynamo.ViewModels
         /// </summary>
         public override void Dispose()
         {
+            model.PropertyChanged -= HandleConnectorPropertyChanged;
             model.Start.Owner.PropertyChanged -= StartOwner_PropertyChanged;
             model.End.Owner.PropertyChanged -= EndOwner_PropertyChanged;
             model.ConnectorPinModels.CollectionChanged -= ConnectorPinModelCollectionChanged;
@@ -1057,13 +1079,13 @@ namespace Dynamo.ViewModels
                     if (workspaceViewModel.DynamoViewModel.ConnectorType == ConnectorType.BEZIER)
                     {
                         BezVisibility = true;
-                        SetVisibilityOfPins(IsVisible);
+                        SetVisibilityOfPins(ConnectorModel.IsVisible);
                         PlineVisibility = false;
                     }
                     else
                     {
                         BezVisibility = false;
-                        SetVisibilityOfPins(IsVisible);
+                        SetVisibilityOfPins(ConnectorModel.IsVisible);
                         PlineVisibility = true;
                     }
 
@@ -1071,9 +1093,9 @@ namespace Dynamo.ViewModels
                     break;
                 case nameof(DynamoViewModel.IsShowingConnectors):
                     var dynModel = sender as DynamoViewModel;
-                    IsVisible = dynModel.IsShowingConnectors;
+                    ConnectorModel.IsVisible = dynModel.IsShowingConnectors;
                     bool adjacentNodeSelected = model.Start.Owner.IsSelected || model.End.Owner.IsSelected;
-                    if (adjacentNodeSelected && isVisible == false)
+                    if (adjacentNodeSelected && ConnectorModel.IsVisible == false)
                     {
                         IsPartlyVisible = true;
                     }
@@ -1106,7 +1128,6 @@ namespace Dynamo.ViewModels
                 matchingPinViewModel.Dispose();
             }
         }
-
 
         /// <summary>
         /// Removes all connectorPinViewModels/ connectorPinModels. This occurs during 'dispose'
